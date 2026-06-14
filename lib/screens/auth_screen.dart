@@ -142,6 +142,7 @@ class _AuthScreenState extends State<AuthScreen> {
         'isResident': false,
         'residencyStatus': 'none',
         'residencyProofUrl': '',
+        'photoUrl': '',
         'strikesCount': 0,
         'banUntil': null,
         'hasSignedWaiver': false,

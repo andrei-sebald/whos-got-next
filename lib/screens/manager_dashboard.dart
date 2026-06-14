@@ -16,6 +16,15 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
   final FirebaseService _fbService = FirebaseService();
   final _db = FirebaseFirestore.instance;
 
+  int _selectedIndex = 0;
+
+  final List<Map<String, dynamic>> _menuItems = [
+    {'title': 'Games', 'icon': Icons.sports_basketball},
+    {'title': 'Residency', 'icon': Icons.verified_user},
+    {'title': 'Appeals', 'icon': Icons.gavel},
+    {'title': 'Schedule', 'icon': Icons.add},
+  ];
+
   // Controllers for creating/editing sessions
   final _locationController = TextEditingController(text: "North Gymnasium - Court A");
   final _slotsController = TextEditingController(text: "20");
@@ -26,6 +35,10 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
   // Controllers for guest check-in
   final _guestNameController = TextEditingController();
   final _guestPhoneController = TextEditingController();
+
+  // Controllers for offline residency search
+  final _residencySearchController = TextEditingController();
+  String _residencySearchQuery = '';
 
   DateTime _selectedDate = DateTime.now().add(const Duration(days: 1));
   TimeOfDay _selectedTime = const TimeOfDay(hour: 18, minute: 0);
@@ -42,6 +55,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     _outWindowController.dispose();
     _guestNameController.dispose();
     _guestPhoneController.dispose();
+    _residencySearchController.dispose();
     super.dispose();
   }
 
@@ -130,38 +144,124 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     );
   }
 
+  Widget _buildActiveTab() {
+    switch (_selectedIndex) {
+      case 0:
+        return _buildGamesTab();
+      case 1:
+        return _buildResidencyTab();
+      case 2:
+        return _buildAppealsTab();
+      case 3:
+        return _buildScheduleTab();
+      default:
+        return _buildGamesTab();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 4,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text("MANAGER PANEL"),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.logout),
-              onPressed: () => _fbService.signOut(),
-            )
-          ],
-          bottom: const TabBar(
-            indicatorColor: AppTheme.primary,
-            tabs: [
-              Tab(icon: Icon(Icons.sports_basketball), text: "Games"),
-              Tab(icon: Icon(Icons.verified_user), text: "Residency"),
-              Tab(icon: Icon(Icons.gavel), text: "Appeals"),
-              Tab(icon: Icon(Icons.add), text: "Schedule"),
-            ],
-          ),
-        ),
-        body: TabBarView(
+    return Scaffold(
+      appBar: AppBar(
+        title: Text("MANAGER - ${_menuItems[_selectedIndex]['title'].toUpperCase()}"),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () => _fbService.signOut(),
+          )
+        ],
+      ),
+      drawer: Drawer(
+        backgroundColor: AppTheme.background,
+        child: ListView(
+          padding: EdgeInsets.zero,
           children: [
-            _buildGamesTab(),
-            _buildResidencyTab(),
-            _buildAppealsTab(),
-            _buildScheduleTab(),
+            UserAccountsDrawerHeader(
+              decoration: const BoxDecoration(
+                color: AppTheme.surface,
+                border: Border(
+                  bottom: BorderSide(color: AppTheme.surfaceLight, width: 1),
+                ),
+              ),
+              currentAccountPicture: CircleAvatar(
+                backgroundColor: AppTheme.primary,
+                backgroundImage: widget.userData['photoUrl'] != null &&
+                        widget.userData['photoUrl'].toString().isNotEmpty
+                    ? NetworkImage(widget.userData['photoUrl'])
+                    : null,
+                child: widget.userData['photoUrl'] != null &&
+                        widget.userData['photoUrl'].toString().isNotEmpty
+                    ? null
+                    : Text(
+                        widget.userData['name'] != null &&
+                                widget.userData['name'].toString().isNotEmpty
+                            ? widget.userData['name'].substring(0, 1).toUpperCase()
+                            : 'M',
+                        style: const TextStyle(
+                          color: AppTheme.textPrimary,
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Outfit', // Or fallback to default sans-serif
+                        ),
+                      ),
+              ),
+              accountName: Text(
+                widget.userData['name'] ?? 'Manager',
+                style: const TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              accountEmail: Text(
+                "Role: ${widget.userData['role']?.toUpperCase() ?? 'MANAGER'}",
+                style: const TextStyle(
+                  color: AppTheme.textSecondary,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            ...List.generate(_menuItems.length, (index) {
+              final item = _menuItems[index];
+              final bool isSelected = _selectedIndex == index;
+              return ListTile(
+                leading: Icon(
+                  item['icon'],
+                  color: isSelected ? AppTheme.primary : AppTheme.textSecondary,
+                ),
+                title: Text(
+                  item['title'],
+                  style: TextStyle(
+                    color: isSelected ? AppTheme.textPrimary : AppTheme.textSecondary,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  ),
+                ),
+                selected: isSelected,
+                selectedTileColor: AppTheme.surface,
+                onTap: () {
+                  setState(() {
+                    _selectedIndex = index;
+                  });
+                  Navigator.of(context).pop(); // Close drawer
+                },
+              );
+            }),
+            const Divider(color: AppTheme.surfaceLight),
+            ListTile(
+              leading: const Icon(Icons.logout, color: AppTheme.error),
+              title: const Text(
+                "Logout",
+                style: TextStyle(color: AppTheme.error),
+              ),
+              onTap: () {
+                Navigator.of(context).pop(); // Close drawer
+                _fbService.signOut();
+              },
+            ),
           ],
         ),
       ),
+      body: _buildActiveTab(),
     );
   }
 
@@ -198,7 +298,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
             final checkedInCount = activePlayers.where((p) => p['checkedIn'] == true).length;
 
             return Card(
-              margin: const EdgeInsets.bottom(16),
+              margin: const EdgeInsets.only(bottom: 16),
               child: ExpansionTile(
                 title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
                 subtitle: Text("${time.toLocal().toString().substring(0, 16)}  |  Checked In: $checkedInCount / ${activePlayers.length}"),
@@ -312,89 +412,96 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
     );
   }
 
-  // TAB 2: Residency verification queue
+  // TAB 2: Residency verification & offline directory
   Widget _buildResidencyTab() {
-    return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: _fbService.streamPendingResidency(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) return Center(child: Text("Error: ${snapshot.error}"));
-        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: TextField(
+            controller: _residencySearchController,
+            onChanged: (val) {
+              setState(() {
+                _residencySearchQuery = val.trim().toLowerCase();
+              });
+            },
+            decoration: const InputDecoration(
+              labelText: "Search Athletes by Name or Phone",
+              prefixIcon: Icon(Icons.search),
+              hintText: "Enter name or phone number",
+            ),
+          ),
+        ),
+        Expanded(
+          child: StreamBuilder<List<Map<String, dynamic>>>(
+            stream: _fbService.streamAllUsers(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) return Center(child: Text("Error: ${snapshot.error}"));
+              if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
 
-        final applicants = snapshot.data ?? [];
-        if (applicants.isEmpty) {
-          return const Center(
-            child: Text("No pending residency uploads.", style: TextStyle(color: AppTheme.textSecondary)),
-          );
-        }
+              final allUsers = snapshot.data ?? [];
+              
+              // Filter only athletes/users matching the search query
+              final filteredAthletes = allUsers.where((user) {
+                final role = user['role'] ?? 'athlete';
+                if (role != 'athlete') return false;
 
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: applicants.length,
-          itemBuilder: (context, index) {
-            final app = applicants[index];
-            final String uid = app['uid'];
-            final String name = app['name'] ?? 'Athlete';
-            final String phone = app['phoneNumber'] ?? '';
-            final String docUrl = app['residencyProofUrl'] ?? '';
+                final name = (user['name'] ?? '').toString().toLowerCase();
+                final phone = (user['phoneNumber'] ?? '').toString().toLowerCase();
+                return name.contains(_residencySearchQuery) || phone.contains(_residencySearchQuery);
+              }).toList();
 
-            return Card(
-              margin: const EdgeInsets.bottom(16),
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(name, style: Theme.of(context).textTheme.titleLarge),
-                    Text("Phone: $phone", style: const TextStyle(color: AppTheme.textSecondary)),
-                    const SizedBox(height: 12),
-                    if (docUrl.isNotEmpty)
-                      Container(
-                        height: 200,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: AppTheme.surfaceLight),
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Image.network(
-                            docUrl,
-                            fit: BoxFit.cover,
-                            loadingBuilder: (context, child, loadingProgress) {
-                              if (loadingProgress == null) return child;
-                              return const Center(child: CircularProgressIndicator());
-                            },
-                            errorBuilder: (_, __, ___) => const Center(
-                              child: Text("Failed to load residency document image.", style: TextStyle(color: AppTheme.error)),
+              if (filteredAthletes.isEmpty) {
+                return const Center(
+                  child: Text("No athletes found matching search.", style: TextStyle(color: AppTheme.textSecondary)),
+                );
+              }
+
+              return ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: filteredAthletes.length,
+                itemBuilder: (context, index) {
+                  final athlete = filteredAthletes[index];
+                  final String uid = athlete['uid'];
+                  final String name = athlete['name'] ?? 'Athlete';
+                  final String phone = athlete['phoneNumber'] ?? '';
+                  final bool isResident = athlete['isResident'] ?? false;
+
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    child: ListTile(
+                      title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: Text(phone),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            isResident ? "RESIDENT" : "GENERAL",
+                            style: TextStyle(
+                              color: isResident ? AppTheme.success : AppTheme.textSecondary,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
                             ),
                           ),
-                        ),
-                      )
-                    else
-                      const Text("No proof image attached.", style: TextStyle(color: AppTheme.error)),
-                    const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        TextButton(
-                          onPressed: () => _fbService.verifyResidency(uid, false),
-                          style: TextButton.styleFrom(foregroundColor: AppTheme.error),
-                          child: const Text("REJECT"),
-                        ),
-                        const SizedBox(width: 12),
-                        ElevatedButton(
-                          onPressed: () => _fbService.verifyResidency(uid, true),
-                          style: ElevatedButton.styleFrom(backgroundColor: AppTheme.success),
-                          child: const Text("APPROVE RESIDENT"),
-                        ),
-                      ],
-                    )
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
+                          const SizedBox(width: 8),
+                          Switch(
+                            value: isResident,
+                            activeColor: AppTheme.success,
+                            onChanged: (val) async {
+                              await _fbService.verifyResidency(uid, val);
+                              _showSnackBar("Updated resident status for $name");
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
@@ -425,7 +532,7 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
             final DateTime date = (appeal['createdAt'] as Timestamp).toDate();
 
             return Card(
-              margin: const EdgeInsets.bottom(16),
+              margin: const EdgeInsets.only(bottom: 16),
               child: Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Column(

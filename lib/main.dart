@@ -1,5 +1,6 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'firebase_options.dart';
 import 'screens/admin_dashboard.dart';
 import 'screens/athlete_dashboard.dart';
 import 'screens/auth_screen.dart';
@@ -10,10 +11,9 @@ import 'theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Note: For this to work in production, a valid google-services.json (Android)
-  // or GoogleService-Info.plist (iOS) must be added to the project,
-  // or default FirebaseOptions must be configured via flutterfire configure.
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const WhosGotNextApp());
 }
 

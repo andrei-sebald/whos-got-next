@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -37,20 +37,29 @@ class FirebaseService {
     });
   }
 
-  // Upload residency proof image to Firebase Storage and update user doc
-  Future<void> uploadResidencyProof(File imageFile) async {
+  // Upload profile picture to Firebase Storage and update user doc
+  Future<void> uploadProfilePicture(Uint8List imageBytes) async {
     if (currentUid == null) return;
 
-    // Upload to storage
-    final ref = _storage.ref().child('residency_proofs/$currentUid.jpg');
-    final uploadTask = await ref.putFile(imageFile);
+    final ref = _storage.ref().child('profile_pictures/$currentUid.jpg');
+    final uploadTask = await ref.putData(imageBytes);
     final downloadUrl = await uploadTask.ref.getDownloadURL();
 
-    // Update firestore
     await _db.collection('users').doc(currentUid).update({
-      'residencyProofUrl': downloadUrl,
-      'residencyStatus': 'pending',
+      'photoUrl': downloadUrl,
     });
+  }
+
+  // Stream all user profiles (Manager/Admin permission)
+  Stream<List<Map<String, dynamic>>> streamAllUsers() {
+    return _db
+        .collection('users')
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map((doc) {
+              final data = doc.data();
+              data['uid'] = doc.id;
+              return data;
+            }).toList());
   }
 
   // Stream upcoming sessions
@@ -66,24 +75,11 @@ class FirebaseService {
             }).toList());
   }
 
-  // Stream pending residency uploads (Manager permission)
-  Stream<List<Map<String, dynamic>>> streamPendingResidency() {
-    return _db
-        .collection('users')
-        .where('residencyStatus', isEqualTo: 'pending')
-        .snapshots()
-        .map((snapshot) => snapshot.docs.map((doc) {
-              final data = doc.data();
-              data['uid'] = doc.id;
-              return data;
-            }).toList());
-  }
-
-  // Manager approves/rejects resident status
+  // Manager approves/rejects resident status offline
   Future<void> verifyResidency(String athleteUid, bool approve) async {
     await _db.collection('users').doc(athleteUid).update({
       'isResident': approve,
-      'residencyStatus': approve ? 'approved' : 'rejected',
+      'residencyStatus': approve ? 'approved' : 'none',
     });
   }
 

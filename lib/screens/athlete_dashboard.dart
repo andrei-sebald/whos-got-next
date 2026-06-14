@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -17,11 +17,11 @@ class AthleteDashboard extends StatefulWidget {
 class _AthleteDashboardState extends State<AthleteDashboard> {
   final FirebaseService _fbService = FirebaseService();
   final _appealController = TextEditingController();
-  final _picker = ImagePicker();
+  final ImagePicker _picker = ImagePicker();
 
-  bool _isUploadingDoc = false;
   bool _isAppealing = false;
   bool _isScanning = false;
+  bool _isUploadingPhoto = false;
   String? _scanningSessionId;
 
   @override
@@ -30,22 +30,33 @@ class _AthleteDashboardState extends State<AthleteDashboard> {
     super.dispose();
   }
 
-  // Upload proof of residency
-  Future<void> _uploadResidencyDoc() async {
+  // Pick and upload profile picture
+  Future<void> _pickAndUploadProfilePicture() async {
     try {
       final XFile? image = await _picker.pickImage(
         source: ImageSource.gallery,
-        imageQuality: 70,
+        maxWidth: 500,
+        maxHeight: 500,
+        imageQuality: 80,
       );
       if (image == null) return;
 
-      setState(() => _isUploadingDoc = true);
-      await _fbService.uploadResidencyProof(File(image.path));
-      _showSnackBar("Proof of residency uploaded successfully!");
+      setState(() {
+        _isUploadingPhoto = true;
+      });
+
+      final bytes = await image.readAsBytes();
+      await _fbService.uploadProfilePicture(bytes);
+
+      _showSnackBar("Profile picture updated successfully!");
     } catch (e) {
-      _showSnackBar("Error uploading: $e", isError: true);
+      _showSnackBar("Error uploading profile picture: $e", isError: true);
     } finally {
-      setState(() => _isUploadingDoc = false);
+      if (mounted) {
+        setState(() {
+          _isUploadingPhoto = false;
+        });
+      }
     }
   }
 
@@ -126,11 +137,7 @@ class _AthleteDashboardState extends State<AthleteDashboard> {
                     const SizedBox(height: 24),
                   ],
 
-                  // Residency proof section
-                  if (!isBanned) ...[
-                    _buildResidencyUploadSection(residencyStatus),
-                    const SizedBox(height: 24),
-                  ],
+
 
                   // Game list title
                   Text(
@@ -183,7 +190,7 @@ class _AthleteDashboardState extends State<AthleteDashboard> {
 
   Widget _buildProfileCard(bool isBanned, int strikes, String residencyStatus) {
     Color statusColor = AppTheme.success;
-    String statusText = "Active Athlete";
+    String statusText = "";
     if (isBanned) {
       statusColor = AppTheme.error;
       statusText = "Account Banned";
@@ -197,10 +204,7 @@ class _AthleteDashboardState extends State<AthleteDashboard> {
           children: [
             Row(
               children: [
-                CircleAvatar(
-                  backgroundColor: statusColor.withOpacity(0.2),
-                  child: Icon(Icons.person, color: statusColor),
-                ),
+                _buildAvatar(isBanned),
                 const SizedBox(width: 16),
                 Expanded(
                   child: Column(
@@ -210,25 +214,22 @@ class _AthleteDashboardState extends State<AthleteDashboard> {
                         widget.userData['name'] ?? 'Athlete',
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
-                      Text(
-                        widget.userData['phoneNumber'] ?? '',
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
                     ],
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: statusColor, width: 1),
-                  ),
-                  child: Text(
-                    statusText,
-                    style: TextStyle(color: statusColor, fontSize: 12, fontWeight: FontWeight.bold),
-                  ),
-                )
+                if (statusText.isNotEmpty)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: statusColor.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: statusColor, width: 1),
+                    ),
+                    child: Text(
+                      statusText,
+                      style: TextStyle(color: statusColor, fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                  )
               ],
             ),
             const Divider(height: 32, color: AppTheme.surfaceLight),
@@ -282,6 +283,96 @@ class _AthleteDashboardState extends State<AthleteDashboard> {
     );
   }
 
+  Widget _buildAvatar(bool isBanned) {
+    final String? photoUrl = widget.userData['photoUrl'];
+    
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: _isUploadingPhoto ? null : _pickAndUploadProfilePicture,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // Outer Ring Gradient
+            Container(
+              width: 84,
+              height: 84,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  colors: isBanned
+                      ? [AppTheme.error.withOpacity(0.6), AppTheme.error.withOpacity(0.2)]
+                      : [AppTheme.primary, AppTheme.accent],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(3.0),
+                child: Container(
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppTheme.surface,
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: _isUploadingPhoto
+                      ? const Center(
+                          child: SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppTheme.primary,
+                            ),
+                          ),
+                        )
+                      : (photoUrl != null && photoUrl.isNotEmpty)
+                          ? Image.network(
+                              photoUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) =>
+                                  const Icon(Icons.person, size: 40, color: AppTheme.textSecondary),
+                            )
+                          : Center(
+                              child: Icon(
+                                Icons.person,
+                                size: 40,
+                                color: isBanned ? AppTheme.error : AppTheme.primary,
+                              ),
+                            ),
+                ),
+              ),
+            ),
+            Positioned(
+              right: 0,
+              bottom: 0,
+              child: Container(
+                padding: const EdgeInsets.all(5),
+                decoration: BoxDecoration(
+                  color: isBanned ? AppTheme.error : AppTheme.primary,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: AppTheme.surface, width: 2),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.3),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.camera_alt,
+                  size: 14,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildResidencyBadge(String status) {
     IconData icon = Icons.help_outline;
     Color color = AppTheme.textSecondary;
@@ -301,7 +392,8 @@ class _AthleteDashboardState extends State<AthleteDashboard> {
       label = "Rejected";
     }
 
-    return Row(
+    final badgeWidget = Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Icon(icon, color: color, size: 18),
         const SizedBox(width: 6),
@@ -311,6 +403,35 @@ class _AthleteDashboardState extends State<AthleteDashboard> {
         )
       ],
     );
+
+    if (status != 'approved') {
+      return InkWell(
+        onTap: () {
+          showDialog(
+            context: context,
+            builder: (BuildContext context) {
+              return AlertDialog(
+                title: const Text("Verify Residency"),
+                content: const Text(
+                  "Please confirm your residency with a community center employee.",
+                ),
+                actions: <Widget>[
+                  TextButton(
+                    child: const Text("OK"),
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                    },
+                  ),
+                ],
+              );
+            },
+          );
+        },
+        child: badgeWidget,
+      );
+    }
+
+    return badgeWidget;
   }
 
   Widget _buildAppealSection() {
@@ -347,36 +468,7 @@ class _AthleteDashboardState extends State<AthleteDashboard> {
     );
   }
 
-  Widget _buildResidencyUploadSection(String residencyStatus) {
-    if (residencyStatus == 'approved' || residencyStatus == 'pending') {
-      return const SizedBox.shrink();
-    }
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text("Request Resident Status", style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            const Text(
-              "Verified residents get early 2-hour sign-up access to open runs. Upload a utility bill or lease agreement showing your name to get verified.",
-              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
-            ),
-            const SizedBox(height: 16),
-            _isUploadingDoc
-                ? const Center(child: CircularProgressIndicator())
-                : OutlinedButton.icon(
-                    onPressed: _uploadResidencyDoc,
-                    icon: const Icon(Icons.upload_file),
-                    label: const Text("UPLOAD PROOF OF ADDRESS"),
-                  ),
-          ],
-        ),
-      ),
-    );
-  }
 
   Widget _buildSessionCard(Map<String, dynamic> session, bool isBanned) {
     final String id = session['id'];
@@ -390,7 +482,7 @@ class _AthleteDashboardState extends State<AthleteDashboard> {
     final List<dynamic> activePlayers = session['activePlayers'] ?? [];
     final List<dynamic> waitlist = session['waitlist'] ?? [];
 
-    final String myUid = currentUid ?? '';
+    final String myUid = _fbService.currentUid ?? '';
     final int myActiveIndex = activePlayers.indexWhere((p) => p['uid'] == myUid);
     final int myWaitlistIndex = waitlist.indexWhere((p) => p['uid'] == myUid);
 
