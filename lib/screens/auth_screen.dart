@@ -1,7 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import '../main.dart' show AuthWrapper;
 import '../theme.dart';
 
 class AuthScreen extends StatefulWidget {
@@ -116,15 +115,8 @@ class _AuthScreenState extends State<AuthScreen> {
         _isLoading = false;
       });
     } else {
-      // Existing user: explicitly navigate to AuthWrapper which will route
-      // to the correct dashboard. This is more reliable than waiting for
-      // the parent StreamBuilder to react to authStateChanges() on Flutter Web.
-      if (mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const AuthWrapper()),
-          (route) => false,
-        );
-      }
+      // Existing user: logged in successfully, App state updates via auth stream
+      setState(() => _isLoading = false);
     }
   }
 
