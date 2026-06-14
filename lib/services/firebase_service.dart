@@ -62,17 +62,60 @@ class FirebaseService {
             }).toList());
   }
 
-  // Stream upcoming sessions
+  // Compute the next occurrence of a given weekday (1=Mon…7=Sun) at hour:minute.
+  // If today is that weekday and the time hasn't passed yet, returns today's occurrence.
+  // Otherwise rolls forward to the next matching weekday.
+  static DateTime nextOccurrenceFromRule(int dayOfWeek, int hour, int minute) {
+    final now = DateTime.now();
+    // Candidate: this week's occurrence
+    int daysUntil = (dayOfWeek - now.weekday) % 7;
+    DateTime candidate = DateTime(
+      now.year,
+      now.month,
+      now.day + daysUntil,
+      hour,
+      minute,
+    );
+    // If that time has already passed, jump to next week's occurrence
+    if (!candidate.isAfter(now)) {
+      candidate = candidate.add(const Duration(days: 7));
+    }
+    return candidate;
+  }
+
+  // Stream sessions, computing gameTime for recurring sessions client-side.
+  // All sessions are sorted by their next upcoming occurrence.
   Stream<List<Map<String, dynamic>>> streamSessions() {
     return _db
         .collection('sessions')
-        .orderBy('gameTime', descending: false)
         .snapshots()
-        .map((snapshot) => snapshot.docs.map((doc) {
-              final data = doc.data();
-              data['id'] = doc.id;
-              return data;
-            }).toList());
+        .map((snapshot) {
+          final sessions = snapshot.docs.map((doc) {
+            final data = doc.data();
+            data['id'] = doc.id;
+
+            final bool isRecurring = data['isRecurring'] ?? false;
+            if (isRecurring) {
+              final int dow = data['recurringDayOfWeek'] ?? 4; // Thursday default
+              final int h = data['recurringTimeHour'] ?? 18;
+              final int m = data['recurringTimeMinute'] ?? 0;
+              // Inject computed gameTime so downstream code works unchanged
+              data['gameTime'] = Timestamp.fromDate(
+                nextOccurrenceFromRule(dow, h, m),
+              );
+            }
+            return data;
+          }).toList();
+
+          // Sort all sessions by ascending next occurrence
+          sessions.sort((a, b) {
+            final aTime = (a['gameTime'] as Timestamp?)?.toDate() ?? DateTime(9999);
+            final bTime = (b['gameTime'] as Timestamp?)?.toDate() ?? DateTime(9999);
+            return aTime.compareTo(bTime);
+          });
+
+          return sessions;
+        });
   }
 
   // Manager approves/rejects resident status offline
@@ -480,25 +523,45 @@ class FirebaseService {
     });
   }
 
-  // Admin / Manager creates a new session
+  // Admin / Manager creates a new session.
+  // For recurring weekly sessions pass isRecurring=true with recurringDayOfWeek (1=Mon…7=Sun),
+  // recurringTimeHour, and recurringTimeMinute. gameTime is omitted for recurring sessions
+  // because it is computed client-side each time from the recurrence rule.
+  // For one-time sessions pass isRecurring=false (or omit) and provide gameTime.
   Future<void> createSession({
     required String locationName,
-    required DateTime gameTime,
     required int totalSlots,
     required int residentSlots,
     required int residentWindowStartMins,
     required int outsiderWindowStartMins,
+    // One-time session fields
+    DateTime? gameTime,
+    // Recurring session fields
+    bool isRecurring = false,
+    int? recurringDayOfWeek,
+    int? recurringTimeHour,
+    int? recurringTimeMinute,
   }) async {
-    await _db.collection('sessions').add({
+    final Map<String, dynamic> doc = {
       'locationName': locationName,
-      'gameTime': Timestamp.fromDate(gameTime),
       'totalSlots': totalSlots,
       'residentSlots': residentSlots,
       'residentWindowStartMins': residentWindowStartMins,
       'outsiderWindowStartMins': outsiderWindowStartMins,
       'activePlayers': [],
       'waitlist': [],
+      'isRecurring': isRecurring,
       'createdAt': FieldValue.serverTimestamp(),
-    });
+    };
+
+    if (isRecurring) {
+      doc['recurringDayOfWeek'] = recurringDayOfWeek;
+      doc['recurringTimeHour'] = recurringTimeHour;
+      doc['recurringTimeMinute'] = recurringTimeMinute;
+    } else {
+      doc['gameTime'] = Timestamp.fromDate(gameTime!);
+    }
+
+    await _db.collection('sessions').add(doc);
   }
 }

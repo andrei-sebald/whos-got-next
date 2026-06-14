@@ -46,6 +46,10 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
   bool _isCreatingSession = false;
   bool _isCheckingInGuest = false;
 
+  // Recurrence state for the Schedule tab
+  bool _isRecurring = true;
+  int _selectedDayOfWeek = 4; // 4 = Thursday (DateTime.weekday: 1=Mon…7=Sun)
+
   @override
   void dispose() {
     _locationController.dispose();
@@ -72,26 +76,41 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
       return;
     }
 
-    final gameDateTime = DateTime(
-      _selectedDate.year,
-      _selectedDate.month,
-      _selectedDate.day,
-      _selectedTime.hour,
-      _selectedTime.minute,
-    );
-
     setState(() => _isCreatingSession = true);
 
     try {
-      await _fbService.createSession(
-        locationName: location,
-        gameTime: gameDateTime,
-        totalSlots: slots,
-        residentSlots: resSlots,
-        residentWindowStartMins: resMins,
-        outsiderWindowStartMins: outMins,
-      );
-      Navigator.of(context).pop(); // Close sheet/modal
+      if (_isRecurring) {
+        await _fbService.createSession(
+          locationName: location,
+          totalSlots: slots,
+          residentSlots: resSlots,
+          residentWindowStartMins: resMins,
+          outsiderWindowStartMins: outMins,
+          isRecurring: true,
+          recurringDayOfWeek: _selectedDayOfWeek,
+          recurringTimeHour: _selectedTime.hour,
+          recurringTimeMinute: _selectedTime.minute,
+        );
+      } else {
+        final gameDateTime = DateTime(
+          _selectedDate.year,
+          _selectedDate.month,
+          _selectedDate.day,
+          _selectedTime.hour,
+          _selectedTime.minute,
+        );
+        await _fbService.createSession(
+          locationName: location,
+          totalSlots: slots,
+          residentSlots: resSlots,
+          residentWindowStartMins: resMins,
+          outsiderWindowStartMins: outMins,
+          gameTime: gameDateTime,
+        );
+      }
+
+      // Bug fix: Schedule tab is inline — never pop. Instead switch to Games tab.
+      setState(() => _selectedIndex = 0);
       _showSnackBar("Game session created successfully!");
     } catch (e) {
       _showSnackBar("Error creating session: $e", isError: true);
@@ -584,6 +603,8 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
 
   // TAB 4: Create Game Session Form
   Widget _buildScheduleTab() {
+    const List<String> dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24.0),
       child: Card(
@@ -651,38 +672,144 @@ class _ManagerDashboardState extends State<ManagerDashboard> {
                 ],
               ),
               const SizedBox(height: 24),
-              const Text("Game Date & Time", style: TextStyle(fontWeight: FontWeight.bold)),
+
+              // ── Session Type Toggle ──────────────────────────────────────
+              const Text("Session Type", style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               Row(
                 children: [
                   Expanded(
-                    child: OutlinedButton(
-                      onPressed: () async {
-                        final date = await showDatePicker(
-                          context: context,
-                          initialDate: _selectedDate,
-                          firstDate: DateTime.now(),
-                          lastDate: DateTime.now().add(const Duration(days: 90)),
-                        );
-                        if (date != null) setState(() => _selectedDate = date);
-                      },
-                      child: Text("${_selectedDate.year}-${_selectedDate.month}-${_selectedDate.day}"),
+                    child: GestureDetector(
+                      onTap: () => setState(() => _isRecurring = true),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(
+                          color: _isRecurring ? AppTheme.primary.withOpacity(0.15) : AppTheme.surface,
+                          borderRadius: const BorderRadius.horizontal(left: Radius.circular(8)),
+                          border: Border.all(
+                            color: _isRecurring ? AppTheme.primary : AppTheme.surfaceLight,
+                            width: _isRecurring ? 2 : 1,
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            Icon(Icons.repeat, color: _isRecurring ? AppTheme.primary : AppTheme.textSecondary, size: 20),
+                            const SizedBox(height: 4),
+                            Text(
+                              "Recurring Weekly",
+                              style: TextStyle(
+                                color: _isRecurring ? AppTheme.primary : AppTheme.textSecondary,
+                                fontWeight: _isRecurring ? FontWeight.bold : FontWeight.normal,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 16),
                   Expanded(
-                    child: OutlinedButton(
-                      onPressed: () async {
-                        final time = await showTimePicker(
-                          context: context,
-                          initialTime: _selectedTime,
-                        );
-                        if (time != null) setState(() => _selectedTime = time);
-                      },
-                      child: Text(_selectedTime.format(context)),
+                    child: GestureDetector(
+                      onTap: () => setState(() => _isRecurring = false),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(
+                          color: !_isRecurring ? AppTheme.accent.withOpacity(0.15) : AppTheme.surface,
+                          borderRadius: const BorderRadius.horizontal(right: Radius.circular(8)),
+                          border: Border.all(
+                            color: !_isRecurring ? AppTheme.accent : AppTheme.surfaceLight,
+                            width: !_isRecurring ? 2 : 1,
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            Icon(Icons.event, color: !_isRecurring ? AppTheme.accent : AppTheme.textSecondary, size: 20),
+                            const SizedBox(height: 4),
+                            Text(
+                              "One-time Event",
+                              style: TextStyle(
+                                color: !_isRecurring ? AppTheme.accent : AppTheme.textSecondary,
+                                fontWeight: !_isRecurring ? FontWeight.bold : FontWeight.normal,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 20),
+
+              // ── Day / Date Picker ─────────────────────────────────────────
+              if (_isRecurring) ...[
+                const Text("Repeats Every", style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  children: List.generate(7, (i) {
+                    final int dow = i + 1; // 1=Mon … 7=Sun
+                    final bool selected = _selectedDayOfWeek == dow;
+                    return ChoiceChip(
+                      label: Text(dayLabels[i]),
+                      selected: selected,
+                      selectedColor: AppTheme.primary,
+                      backgroundColor: AppTheme.surface,
+                      labelStyle: TextStyle(
+                        color: selected ? Colors.white : AppTheme.textSecondary,
+                        fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                      ),
+                      onSelected: (_) => setState(() => _selectedDayOfWeek = dow),
+                    );
+                  }),
+                ),
+              ] else ...[
+                const Text("Event Date", style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                OutlinedButton(
+                  onPressed: () async {
+                    final date = await showDatePicker(
+                      context: context,
+                      initialDate: _selectedDate,
+                      firstDate: DateTime.now(),
+                      lastDate: DateTime.now().add(const Duration(days: 90)),
+                    );
+                    if (date != null) setState(() => _selectedDate = date);
+                  },
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.calendar_today, size: 16),
+                      const SizedBox(width: 8),
+                      Text("${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2,'0')}-${_selectedDate.day.toString().padLeft(2,'0')}"),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 16),
+
+              // ── Time Picker (shared) ──────────────────────────────────────
+              const Text("Start Time", style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              OutlinedButton(
+                onPressed: () async {
+                  final time = await showTimePicker(
+                    context: context,
+                    initialTime: _selectedTime,
+                  );
+                  if (time != null) setState(() => _selectedTime = time);
+                },
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.access_time, size: 16),
+                    const SizedBox(width: 8),
+                    Text(_selectedTime.format(context)),
+                  ],
+                ),
               ),
               const SizedBox(height: 32),
               _isCreatingSession
