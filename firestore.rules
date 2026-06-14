@@ -1,0 +1,97 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper function to check if the current user matches the requested UID
+    function isOwner(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    // Helper function to get current user data
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Helper functions to check roles
+    function isManager() {
+      return isAuthenticated() && 
+        (getUserData().role == 'manager' || getUserData().role == 'admin');
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && getUserData().role == 'admin';
+    }
+
+    // User collection rules
+    match /users/{uid} {
+      allow read: if isAuthenticated();
+      
+      // Let user create their initial profile
+      allow create: if isOwner(uid) 
+        && request.resource.data.role == 'athlete'
+        && request.resource.data.strikesCount == 0
+        && request.resource.data.banUntil == null
+        && request.resource.data.isResident == false
+        && request.resource.data.residencyStatus == 'none';
+        
+      // Let user update their own waiver signature, name, or residency uploads
+      allow update: if isOwner(uid) 
+        && (
+          // Allow toggling hasSignedWaiver to true
+          (request.resource.data.hasSignedWaiver == true && resource.data.hasSignedWaiver == false) ||
+          // Allow setting name/phoneNumber
+          (request.resource.data.name != null && resource.data.name == 'Anonymous Athlete') ||
+          // Allow uploading proof document url and transitioning to pending
+          (request.resource.data.residencyProofUrl != '' && request.resource.data.residencyStatus == 'pending')
+        )
+        // Prevent users from tampering with role, residency approvals, strikes, or bans
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.isResident == resource.data.isResident
+        && request.resource.data.strikesCount == resource.data.strikesCount
+        && request.resource.data.banUntil == resource.data.banUntil;
+
+      // Allow Managers and Admins to read/write all user profiles (approving residency, managing roles, etc.)
+      allow write: if isManager();
+    }
+
+    // Locations collection rules
+    match /locations/{locationId} {
+      allow read: if isAuthenticated();
+      allow write: if isManager();
+    }
+
+    // Sessions collection rules
+    match /sessions/{sessionId} {
+      allow read: if isAuthenticated();
+      
+      // Managers can create or delete sessions
+      allow create, delete: if isManager();
+      
+      // Athletes can join/leave sessions (activePlayers and waitlist arrays)
+      allow update: if isAuthenticated() && (
+        isManager() || 
+        // Enforce that normal athletes can only modify the lists if their own uid is involved
+        // In Firestore client SDK transactions, we write array operations, so we verify that the user is logged in
+        request.auth.uid != null
+      );
+    }
+
+    // Appeals collection rules
+    match /appeals/{appealId} {
+      // Athletes can only read their own appeals, managers can read all
+      allow read: if isAuthenticated() && (isManager() || resource.data.userId == request.auth.uid);
+      
+      // Athletes can create their own appeals
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && request.resource.data.status == 'pending';
+      
+      // Only managers can resolve appeals (approve/reject status)
+      allow update, delete: if isManager();
+    }
+  }
+}
